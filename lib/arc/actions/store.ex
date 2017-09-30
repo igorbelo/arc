@@ -23,22 +23,27 @@ defmodule Arc.Actions.Store do
   end
 
   defp store_tmp(source_file, options) do
+    tmp_dir = Path.join(System.tmp_dir, uuid)
+    File.mkdir(tmp_dir)
     case read_file(source_file) do
       {:ok, file_content} ->
-        tmp_file = System.tmp_dir <> uuid <> Path.extname(source_file)
-        File.write(tmp_file, file_content)
+        tmp_file = %Arc.File{
+          path: tmp_dir,
+          file_name: file_name(source_file, options)
+        }
+        File.write(Path.join(tmp_file.path, tmp_file.file_name), file_content)
         {:ok, tmp_file}
       error -> error
     end
   end
 
-  defp convert(file, [dimensions: dimensions]) when dimensions do
-    converted_files = Enum.map(dimensions, fn(dimension) ->
-      System.cmd("convert", [file, "-resize", dimension, "#{file}-#{dimension}"])
-      "#{file}-#{dimension}"
-    end)
-    {:ok, [file] ++ converted_files}
-  end
+  # defp convert(file, [dimensions: dimensions]) when dimensions do
+  #   converted_files = Enum.map(dimensions, fn(dimension) ->
+  #     System.cmd("convert", [file, "-resize", dimension, "#{file}-#{dimension}"])
+  #     %Arc.File{path: "#{file}-#{dimension}", version: dimension}
+  #   end)
+  #   {:ok, [%Arc.File{location: file, version: :original}] ++ converted_files}
+  # end
 
   defp convert(file, _options) do
     {:ok, [file]}
@@ -46,9 +51,8 @@ defmodule Arc.Actions.Store do
 
   defp store_all_files(files, options) do
     files = Enum.map(files, fn(file) ->
-      destination_path = destination_path(file, options)
-      destination_file = destination_file(destination_path, file, options)
-      case File.cp(file, destination_file) do
+      destination_file = destination_file(file, options)
+      case File.cp(Path.join(file.path, file.file_name), destination_file) do
         :ok -> Path.expand(destination_file)
         error -> error
       end
@@ -58,16 +62,19 @@ defmodule Arc.Actions.Store do
 
   defp uuid do
     length = 32
-    :crypto.strong_rand_bytes(length) |> Base.encode64 |> binary_part(0, length)
+    :crypto.strong_rand_bytes(length)
+    |> Base.encode64
+    |> binary_part(0, length)
+    |> String.replace("/", "-")
   end
 
-  defp destination_path(file, options) do
+  def file_name(file, options) when is_binary(file) do
+    uuid <> Path.extname(file)
+  end
+
+  defp destination_file(file, options) do
     path = options[:definition].storage_dir(file, options)
     if !File.exists?(path), do: File.mkdir_p(path)
-    path
-  end
-
-  defp destination_file(path, file, options) do
-    Path.join(path, Path.basename(file))
+    Path.join(path, file.file_name)
   end
 end
