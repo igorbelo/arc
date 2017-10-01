@@ -11,28 +11,23 @@ defmodule Arc.Actions.Store do
     with :ok <- definition.validate(source_file, options),
         {:ok, tmp_file} <- store_tmp(source_file, options),
         {:ok, files} <- convert(tmp_file, options),
-        {:ok, all_files} <- store_all_files(files, options) do
+        {:ok, all_files} <- move_all_files(files, options) do
       {:ok, all_files}
     else
       error -> error
     end
   end
 
-  defp read_file(source_file) do
-    File.read(source_file)
-  end
-
   defp store_tmp(source_file, options) do
     tmp_dir = Path.join(System.tmp_dir, uuid)
     File.mkdir(tmp_dir)
-    case read_file(source_file) do
+    original_file = Arc.File.new(version: :original, source: source_file)
+    case Arc.File.read(original_file) do
       {:ok, file_content} ->
-        tmp_file = %Arc.File{
-          path: tmp_dir,
-          file_name: file_name(source_file, options)
-        }
-        File.write(Path.join(tmp_file.path, tmp_file.file_name), file_content)
-        {:ok, tmp_file}
+        file_name = file_name(original_file, options)
+        destination = Path.join(tmp_dir, file_name)
+        File.write(destination, file_content)
+        {:ok, Arc.File.new(version: :original, source: destination)}
       error -> error
     end
   end
@@ -49,10 +44,10 @@ defmodule Arc.Actions.Store do
     {:ok, [file]}
   end
 
-  defp store_all_files(files, options) do
+  defp move_all_files(files, options) do
     files = Enum.map(files, fn(file) ->
       destination_file = destination_file(file, options)
-      case File.cp(Path.join(file.path, file.file_name), destination_file) do
+      case File.cp(file.source, destination_file) do
         :ok -> Path.expand(destination_file)
         error -> error
       end
@@ -68,13 +63,13 @@ defmodule Arc.Actions.Store do
     |> String.replace("/", "-")
   end
 
-  def file_name(file, options) when is_binary(file) do
-    uuid <> Path.extname(file)
+  def file_name(file, options) do
+    Path.basename(file.source)
   end
 
   defp destination_file(file, options) do
     path = options[:definition].storage_dir(file, options)
     if !File.exists?(path), do: File.mkdir_p(path)
-    Path.join(path, file.file_name)
+    Path.join(path, Path.basename(file.source))
   end
 end
